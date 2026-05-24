@@ -5,8 +5,11 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-app.get("/", (req, res) => {
-  res.send("Backend is running");
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Server healthy"
+  });
 });
 app.use(express.json());
 console.log("app.ts loaded");
