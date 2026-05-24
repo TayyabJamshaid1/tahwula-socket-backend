@@ -5,7 +5,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-
+app.get("/", (req, res) => {
+  res.send("Backend is running");
+});
 app.use(express.json());
 console.log("app.ts loaded");
 app.use(
