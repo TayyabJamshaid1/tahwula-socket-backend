@@ -26,6 +26,9 @@ router.post("/emit", (req, res) => {
       event,
       payload,
     } = req.body;
+console.log(  receiverId,
+      event,
+      payload,);
 
     emitToUser(
       receiverId,

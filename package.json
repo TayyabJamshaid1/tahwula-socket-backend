@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-  "dev": "tsx watch src/server.ts",
-  "build": "tsc",
-  "start": "node dist/server.js"
-},
+"scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "nodemon src/server.ts",
+    "pm2:start": "pm2 start dist/server.js --name shopdrop-backend",
+    "pm2:stop": "pm2 stop shopdrop-backend",
+    "pm2:restart": "pm2 restart shopdrop-backend",
+    "pm2:logs": "pm2 logs shopdrop-backend"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {
