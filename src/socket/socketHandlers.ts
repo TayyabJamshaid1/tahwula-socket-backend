@@ -1,6 +1,7 @@
 // backend/socket/socketHandlers.ts
 import { Server, Socket } from "socket.io";
 import { getReceiverSocketId, userSocketMap } from "./onlineUsers";
+import { io } from "../config/socket";
 
 export const socketHandlers = (io: Server, socket: Socket) => {
   console.log("User connected:", socket.id);
@@ -88,4 +89,19 @@ export const socketHandlers = (io: Server, socket: Socket) => {
   socket.on("connect_error", (err) => {
     console.log(`Socket Error for user ${userId}: ${err.message}`);
   });
+};
+export const emitToUser = (
+  receiverId: string,
+  event: string,
+  payload: any
+) => {
+  const receiverSocketId =
+    getReceiverSocketId(receiverId);
+
+  if (receiverSocketId) {
+    io.to(receiverSocketId).emit(
+      event,
+      payload
+    );
+  }
 };
