@@ -1,40 +1,49 @@
 import { Router } from "express";
-import { emitToUser } from "../socket/socketHandlers";
+import {
+  emitToUser,
+  joinUserToRoom,
+  removeUserFromRoom,
+} from "../socket/socketHandlers";
 import { io } from "../config/socket";
-import { getReceiverSocketId } from "../socket/onlineUsers";
+import {
+  getReceiverSocketId,
+  isUserActiveInChat,
+} from "../socket/onlineUsers";
 
 const router = Router();
+
 console.log("chat router loaded");
+
+const isAuthorized = (req: any) => {
+  return (
+    req.headers["x-internal-secret"] ===
+    process.env.INTERNAL_SOCKET_SECRET
+  );
+};
+
+// =========================
+// EMIT TO SINGLE USER
+// =========================
+
 router.post("/emit", (req, res) => {
   try {
-    // SECURITY CHECK
-    const internalSecret =
-      req.headers["x-internal-secret"];
-
-    if (
-      internalSecret !==
-      process.env.INTERNAL_SOCKET_SECRET
-    ) {
+    if (!isAuthorized(req)) {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",
       });
     }
 
-    const {
-      receiverId,
-      event,
-      payload,
-    } = req.body;
-console.log(  receiverId,
-      event,
-      payload,);
+    const { receiverId, event, payload } = req.body;
 
-    emitToUser(
-      receiverId,
-      event,
-      payload,
-    );
+    if (!receiverId || !event) {
+      return res.status(400).json({
+        success: false,
+        message: "receiverId and event are required",
+      });
+    }
+
+    emitToUser(receiverId.toString(), event, payload);
 
     return res.json({
       success: true,
@@ -48,82 +57,32 @@ console.log(  receiverId,
     });
   }
 });
-router.post("/emit-message", (req, res) => {
-  try {
-    const internalSecret =
-      req.headers["x-internal-secret"];
 
-    if (
-      internalSecret !==
-      process.env.INTERNAL_SOCKET_SECRET
-    ) {
+// =========================
+// EMIT TO CHAT ROOM
+// for newMessage, groupUpdated,
+// groupDeleted, messagesSeen, etc.
+// =========================
+
+router.post("/emit-room", (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
       return res.status(401).json({
         success: false,
+        message: "Unauthorized",
       });
     }
 
-    const {
-      chatId,
-      senderId,
-      receiverId,
-      message,
-      isReceieverInChatRoom,
-    } = req.body;
+    const { roomId, event, payload } = req.body;
 
-    // =====================================
-    // ROOM EMIT
-    // =====================================
-
-    io.to(chatId).emit(
-      "newMessage",
-      message,
-    );
-
-    // =====================================
-    // RECEIVER DIRECT EMIT
-    // =====================================
-
-    const receiverSocketId =
-      getReceiverSocketId(receiverId);
-
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit(
-        "newMessage",
-        message,
-      );
+    if (!roomId || !event) {
+      return res.status(400).json({
+        success: false,
+        message: "roomId and event are required",
+      });
     }
 
-    // =====================================
-    // SENDER DIRECT EMIT
-    // =====================================
-
-    const senderSocketId =
-      getReceiverSocketId(senderId);
-
-    if (senderSocketId) {
-      io.to(senderSocketId).emit(
-        "newMessage",
-        message,
-      );
-    }
-
-    // =====================================
-    // MESSAGE SEEN
-    // =====================================
-
-    if (
-      isReceieverInChatRoom &&
-      senderSocketId
-    ) {
-      io.to(senderSocketId).emit(
-        "messageSeen",
-        {
-          chatId,
-          messageIds: [message._id],
-          seenBy: receiverId,
-        },
-      );
-    }
+    io.to(roomId.toString()).emit(event, payload);
 
     return res.json({
       success: true,
@@ -133,47 +92,114 @@ router.post("/emit-message", (req, res) => {
 
     return res.status(500).json({
       success: false,
+      message: "Internal server error",
     });
   }
 });
 
-router.post("/check-room", (req, res) => {
-  try {
-    
-    const internalSecret =
-      req.headers["x-internal-secret"];
+// =========================
+// JOIN USER TO ROOM
+// used when user is added to group
+// =========================
 
-    if (
-      internalSecret !==
-      process.env.INTERNAL_SOCKET_SECRET
-    ) {
+router.post("/join-room", (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
       return res.status(401).json({
         success: false,
+        message: "Unauthorized",
       });
     }
 
-    const { receiverId, chatId } =
-      req.body;
+    const { userId, roomId } = req.body;
 
-    const receiverSocketId =
-      getReceiverSocketId(receiverId);
-
-    let isInRoom = false;
-console.log(receiverSocketId,"receiverSocketId");
-
-    if (receiverSocketId) {
-      const receiverSocket =
-        io.sockets.sockets.get(
-          receiverSocketId,
-        );
-
-      if (
-        receiverSocket &&
-        receiverSocket.rooms.has(chatId)
-      ) {
-        isInRoom = true;
-      }
+    if (!userId || !roomId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and roomId are required",
+      });
     }
+
+    joinUserToRoom(userId.toString(), roomId.toString());
+
+    return res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// =========================
+// REMOVE USER FROM ROOM
+// used when member removed / leaves group
+// =========================
+
+router.post("/leave-room", (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const { userId, roomId } = req.body;
+
+    if (!userId || !roomId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId and roomId are required",
+      });
+    }
+
+    removeUserFromRoom(userId.toString(), roomId.toString());
+
+    return res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// =========================
+// CHECK ACTIVE CHAT
+// used for seenBy logic
+// =========================
+
+router.post("/check-room", (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const { receiverId, chatId } = req.body;
+
+    if (!receiverId || !chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "receiverId and chatId are required",
+      });
+    }
+
+    const isInRoom = isUserActiveInChat(
+      receiverId.toString(),
+      chatId.toString(),
+    );
 
     return res.json({
       success: true,
@@ -184,7 +210,81 @@ console.log(receiverSocketId,"receiverSocketId");
 
     return res.status(500).json({
       success: false,
+      message: "Internal server error",
     });
   }
 });
+
+// =========================
+// LEGACY: EMIT MESSAGE
+// keep only if your old one-to-one chat still uses it
+// =========================
+
+router.post("/emit-message", (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const {
+      chatId,
+      senderId,
+      receiverId,
+      message,
+      seenByUsers,
+    } = req.body;
+
+    if (!chatId || !senderId || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "chatId, senderId and message are required",
+      });
+    }
+
+    io.to(chatId.toString()).emit("newMessage", message);
+
+    if (receiverId) {
+      const receiverSocketId = getReceiverSocketId(
+        receiverId.toString(),
+      );
+
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("newMessage", message);
+      }
+    }
+
+    const senderSocketId = getReceiverSocketId(senderId.toString());
+
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("newMessage", message);
+    }
+
+    if (
+      Array.isArray(seenByUsers) &&
+      seenByUsers.length > 0 &&
+      senderSocketId
+    ) {
+      io.to(senderSocketId).emit("messagesSeen", {
+        chatId,
+        messageIds: [message._id],
+        seenByUsers,
+      });
+    }
+
+    return res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
 export default router;
